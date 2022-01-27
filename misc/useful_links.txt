@@ -1,0 +1,4 @@
+* Neural Renderer (correct-ish branch) - https://github.com/daniilidis-group/neural_renderer/tree/at_assert_fix
+* Fix for new version of Torch for CUDA - https://github.com/open-mmlab/OpenPCDet/issues/284
+* Original Nerual Renderer (references to the link above) - https://github.com/hiroharu-kato/neural_renderer
+* Motion Planning Transformers (paper + source code) - https://openreview.net/forum?id=6Jf6HX4MoLH
