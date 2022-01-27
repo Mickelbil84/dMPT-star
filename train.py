@@ -38,8 +38,8 @@ parser.add_argument('--env-list-train', type=int, default=1750, help='range of e
 parser.add_argument('--env-list-val', type=int, default=1750, help='range of enviroments to collect validation data from')
 parser.add_argument('--data-folder', type=str, default='data', metavar='D', help='root to data folder')
 parser.add_argument('--batch-size', type=int, default=128, help='batch size')
-parser.add_argument('--train-workers', type=int, default=6, help='number of CPU threads for train data')
-parser.add_argument('--val-workers', type=int, default=1, help='number of CPU threads for validation data')
+parser.add_argument('--train-workers', type=int, default=8, help='number of CPU threads for train data')
+parser.add_argument('--val-workers', type=int, default=4, help='number of CPU threads for validation data')
 
 
 #######
@@ -79,26 +79,6 @@ if __name__ == "__main__":
 # Training
 ###############
 
-def focal_loss(predVals, trueLabels, gamma, eps=1e-8):
-    '''
-    A function to calculate the focal loss as mentioned in 
-    https://arxiv.org/pdf/1708.02002.pdf
-    :param predVals: The output of the final linear layer.
-    :param trueLabels: The true labels
-    :param gamma: The hyperparameter of the loss function
-    :param eps: A scalar value to enforce numerical stability.
-    :returns float: The loss value
-    '''
-    input_soft = F.softmax(predVals, dim=1) + eps
-    target_one_hot = torch.zeros((trueLabels.shape[0], 2), device=trueLabels.device)
-    target_one_hot.scatter_(1, trueLabels.unsqueeze(1), 1.0)
-
-    weight = torch.pow(-input_soft + 1., gamma)
-    focal = -weight*torch.log(input_soft)
-    loss = torch.sum(target_one_hot*focal, dim=1).sum()
-    return loss
-
-
 def cal_performance(predVals, anchorPoints, trueLabels, lengths):
     '''
     Return the loss and number of correct predictions.
@@ -116,7 +96,7 @@ def cal_performance(predVals, anchorPoints, trueLabels, lengths):
         loss = F.cross_entropy(predVal, trueLabel)
         total_loss += loss
         classPred = predVal.max(1)[1]
-        n_correct +=classPred.eq(trueLabel[:length]).sum().item()/length
+        n_correct += classPred.eq(trueLabel[:length]).sum().item()/length
     return total_loss, n_correct
 
 def visualize_epoch(model):
@@ -139,8 +119,6 @@ def visualize_epoch(model):
 
     pos_pred_map = cv2.resize(pos_pred_map, (480, 480))
     neg_pred_map = cv2.resize(neg_pred_map, (480, 480))
-
-    print(pos_pred_map.shape, neg_pred_map.shape, scene_map.shape)
 
     vis.image(scene_map.numpy(), win='Scene', opts=dict(title="Scene"))
     vis.image(locations_map.numpy(), win='Locations', opts=dict(title="Locations"))
