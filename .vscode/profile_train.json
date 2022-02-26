@@ -1,0 +1,11 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "type": "austin",
+            "file": "train_new.py",
+            "args": ["--verbose"],
+            "label": "Profile train_new.py"
+        }
+    ]
+}

@@ -22,6 +22,8 @@ def PaddedSequence(batch):
     data['anchor'] = pad_sequence([batch_i['anchor'] for batch_i in batch if batch_i is not None], batch_first=True)
     data['labels'] = pad_sequence([batch_i['labels'] for batch_i in batch if batch_i is not None], batch_first=True)
     data['length'] = torch.tensor([batch_i['anchor'].shape[0] for batch_i in batch if batch_i is not None])
+    data['start'] = torch.cat([batch_i['start'][None, :] for batch_i in batch if batch_i is not None])
+    data['goal'] = torch.cat([batch_i['goal'][None, :] for batch_i in batch if batch_i is not None])
     return data
 
 map_size = (480, 480)
@@ -136,8 +138,15 @@ class PathDataLoader(Dataset):
             anchor = torch.cat((torch.tensor(AnchorPointsPos), torch.tensor(AnchorPointsNeg)))
             labels = torch.zeros_like(anchor)
             labels[:len(AnchorPointsPos)] = 1
+
+            # Convert start and goal to -1, 1 range
+            goal_index = np.array((goal_index[0]*2/480-1.0, -goal_index[1]*2/480+1.0))
+            start_index = np.array((start_index[0]*2/480-1.0, -start_index[1]*2/480+1.0))
+
             return {
                 'map':torch.as_tensor(mapEncoder), 
                 'anchor':anchor, 
-                'labels':labels
+                'labels':labels,
+                'start':torch.from_numpy(start_index),
+                'goal':torch.from_numpy(goal_index),
             }

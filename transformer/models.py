@@ -234,7 +234,7 @@ class Decoder(nn.Module):
 class Transformer(nn.Module):
     ''' A Transformer module
     '''
-    def __init__(self, n_layers, n_heads, d_k, d_v, d_model, d_inner, pad_idx, dropout, n_position, train_shape):
+    def __init__(self, n_layers, n_heads, d_k, d_v, d_model, d_inner, pad_idx, dropout, n_position, train_shape, predict_paths=False, n_points=None):
         '''
         Initialize the Transformer model.
         :param n_layers: Number of layers of attention and fully connected layers
@@ -249,6 +249,9 @@ class Transformer(nn.Module):
         :param train_shape: The shape of the output of the patch encodings. 
         '''
         super().__init__()
+
+        self.predict_paths = predict_paths
+        self.n_points=n_points
 
         self.encoder = Encoder(
             n_layers=n_layers, 
@@ -270,6 +273,17 @@ class Transformer(nn.Module):
             Rearrange('bc d 1 1 -> bc d')
         )
 
+        # Last linear layer for *path* prediction
+        self.pathPred = nn.Sequential(
+            # Assume we start after class pred, i.e. having shape (b x c x d)
+            Rearrange('b c d -> b (c d)'),
+            nn.Linear(24 * 24 * 2, 1024),
+            nn.ReLU(True),
+            nn.Linear(1024, 512),
+            nn.ReLU(True),
+            nn.Linear(512, self.n_points * 2),
+        )
+
 
     def forward(self, input_map):
         '''
@@ -282,4 +296,12 @@ class Transformer(nn.Module):
         enc_output, *_ = self.encoder(input_map)
         seq_logit = self.classPred(enc_output)
         batch_size = input_map.shape[0]
-        return rearrange(seq_logit, '(b c) d -> b c d', b=batch_size)
+        seq_logit = rearrange(seq_logit, '(b c) d -> b c d', b=batch_size)
+        
+        if self.predict_paths:
+            path_prediction = self.pathPred(seq_logit)
+            path_prediction = torch.tanh(path_prediction)
+            path_prediction = rearrange(path_prediction, 'b (n d) -> b n d', d=2)
+            return path_prediction
+        
+        return seq_logit

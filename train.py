@@ -250,6 +250,7 @@ def main():
     )
     model = Transformer(**model_args).cuda()
 
+
     if args.checkpoint != '':
         checkpoint_args_path = os.path.dirname(args.checkpoint) + '/args.pth'
         checkpoint_args = torch.load(checkpoint_args_path)
