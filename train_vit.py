@@ -1,3 +1,4 @@
+import sys
 import argparse
 import os
 
@@ -8,11 +9,9 @@ import torch.optim as optim
 import visdom
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from vit_pytorch import ViT
 
 from data import PaddedSequence, PathDataLoader
-from transformer.models import Transformer
-from transformer.optim import ScheduledOptim
-from unet.Models import UNet
 from utils import create_output_dir, neural_render_path
 
 torch.cuda.empty_cache()
@@ -54,7 +53,7 @@ parser.add_argument(
 parser.add_argument(
     "--data-folder", type=str, default="data", metavar="D", help="root to data folder"
 )
-parser.add_argument("--batch-size", type=int, default=16, help="batch size")
+parser.add_argument("--batch-size", type=int, default=64, help="batch size")
 parser.add_argument(
     "--train-workers", type=int, default=8, help="number of CPU threads for train data"
 )
@@ -140,7 +139,9 @@ def visualize_epoch(model, print_paths=True):
 
             # show model predictions
             s = encoder_map.size()
-            paths = model(encoder_map.view(1, s[0], s[1], s[2]).float().cuda())
+            black_channel = torch.zeros(1, 1, s[1], s[1])
+            x = torch.cat((encoder_map.view(1, s[0], s[1], s[2]), black_channel), dim=1)
+            paths = torch.tanh(model(x.float().cuda()).view(-1, args.n_points, 2))
             paths = torch.cat(
                 (
                     valid_dataset[i]["start"].float().cuda().view(-1, 1, 2),
@@ -218,8 +219,11 @@ def train_epoch(model, trainingData, optimizer, epoch, train_losses, train_accur
         goal_point = batch["goal"].float().cuda().view(-1, 1, 2)
         batch_size = encoder_input.shape[0]
 
+        black_channel = torch.zeros(batch_size, 1, encoder_input.shape[2], encoder_input.shape[3]).cuda()
+        x = torch.cat((encoder_input, black_channel), dim=1)
+
         # Predict path given the input
-        paths = model(encoder_input)
+        paths = torch.tanh(model(x).view(-1, args.n_points, 2))
         paths = torch.cat(
             (start_point, paths, goal_point), dim=1
         )  # Force source and target by appending them to the start and end of the rendered path
@@ -254,8 +258,9 @@ def train_epoch(model, trainingData, optimizer, epoch, train_losses, train_accur
 
         train_enum.set_description("Train (loss %.6f) epoch %d" % (loss.item(), epoch))
 
-        # if cnt % 5 == 0:
-        #     visualize_epoch(model, False)
+        if cnt % 10 == 0:
+            visualize_epoch(model, False)
+            model.train()
 
     total_loss = float(total_loss / cnt)
     accuracy = float(total_n_correct / cnt)
@@ -288,22 +293,17 @@ def train_epoch(model, trainingData, optimizer, epoch, train_losses, train_accur
 def main():
     start_epoch = 1
 
-    model_args = dict(
-        n_layers=6,
-        n_heads=3,
-        d_k=512,
-        d_v=256,
-        d_model=512,
-        d_inner=1024,
-        pad_idx=None,
-        n_position=40 * 40,
+    model = ViT(
+        image_size=480,
+        patch_size=32,
+        num_classes=args.n_points * 2,
+        dim=512,
+        depth=3,
+        heads=8,
+        mlp_dim=1024,
         dropout=0.1,
-        train_shape=[24, 24],
-        predict_paths=True,
-        n_points=args.n_points,
-    )
-    model = Transformer(**model_args).cuda()
-    model_unet = UNet(2, 1, n_points=args.n_points).cuda()
+        emb_dropout=0.1
+    ).cuda()
 
     if args.checkpoint != "":
         checkpoint_args_path = os.path.dirname(args.checkpoint) + "/args.pth"
@@ -311,14 +311,7 @@ def main():
         start_epoch = checkpoint_args[3]
         model.load_state_dict(torch.load(args.checkpoint))
 
-    # optimizer = ScheduledOptim(
-    #     optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-9),
-    #     lr_mul=0.5,
-    #     d_model=256,
-    #     n_warmup_steps=3200,
-    # )
-    optimizer_unet = optim.Adam(model_unet.parameters(), lr=2e-5)
-    scheduler = optim.lr_scheduler.StepLR(optimizer_unet, step_size=4, gamma=0.1)
+    optimizer = optim.Adam(model.parameters(), lr=1e-7)
 
     # Keep track of losses
     train_losses = []
@@ -326,18 +319,16 @@ def main():
 
     # Start training
     for epoch in range(start_epoch, start_epoch + args.epochs):
-        visualize_epoch(model_unet)
-        # train_epoch(model, train_loader, optimizer, epoch, train_losses, train_accuracy)
+        visualize_epoch(model)
         train_epoch(
-            model_unet,
+            model,
             train_loader,
-            optimizer_unet,
+            optimizer,
             epoch,
             train_losses,
             train_accuracy,
         )
-        scheduler.step()
-        torch.save(model_unet.state_dict(), "checkpoints/model_unet.pkl")
+        torch.save(model.state_dict(), "checkpoints/model_vit.pkl")
 
 
 if __name__ == "__main__":
