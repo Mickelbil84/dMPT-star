@@ -1,10 +1,10 @@
-from audioop import avg
 import os
 import random
 
 import cv2
-import torch
 import tqdm
+import time
+import torch
 import numpy as np
 import networkx as nx
 
@@ -157,12 +157,12 @@ def extract_data_sample(data_sample):
     img = data_sample["map"][0, :, :].numpy() * 255
     img = img.reshape(480, 480, 1)
     img = np.repeat(img, 3, 2)
-    inpt = data_sample["map"].cuda().view(1, 2, 480, 480).float()
+    inpt = data_sample["map"].cpu().view(1, 2, 480, 480).float()
 
     s_x, s_y = data_sample["start"][1], data_sample["start"][0]
     t_x, t_y = data_sample["goal"][1], data_sample["goal"][0]
-    start_point = data_sample["start"].float().cuda().view(-1, 1, 2)
-    goal_point = data_sample["goal"].float().cuda().view(-1, 1, 2)
+    start_point = data_sample["start"].float().cpu().view(-1, 1, 2)
+    goal_point = data_sample["goal"].float().cpu().view(-1, 1, 2)
 
     s_x = int((s_x + 1) * 479 / 2)
     s_y = int((s_y + 1) * 479 / 2)
@@ -189,34 +189,106 @@ if __name__ == "__main__":
         dataFolder=os.path.join("data", "forest", "val"),
     )
 
-    model = UNet(2,1, 20).cuda()
-    model.load_state_dict(torch.load("checkpoints/forest_lambd_0.001.pkl", map_location="cuda"))
+    ##################
+    # Load models
+    ##################
+    # model_lambd_0_1 = UNet(2,1, 20).cuda()
+    # model_lambd_0_1.load_state_dict(torch.load("checkpoints/forest_lambd_0.1.pkl", map_location="cuda"))
+    # model_lambd_0_01 = UNet(2,1, 20).cuda()
+    # model_lambd_0_01.load_state_dict(torch.load("checkpoints/forest_lambd_0.01.pkl", map_location="cuda"))
+    # model_lambd_0_001 = UNet(2,1, 20).cuda()
+    # model_lambd_0_001.load_state_dict(torch.load("checkpoints/forest_lambd_0.001.pkl", map_location="cuda"))
+    # model_lambd_0 = UNet(2,1, 20).cuda()
+    # model_lambd_0.load_state_dict(torch.load("checkpoints/forest_lambd_0.pkl", map_location="cuda"))
+    # model_lambd_1 = UNet(2,1, 20).cuda()
+    # model_lambd_1.load_state_dict(torch.load("checkpoints/forest_lambd_1.pkl", map_location="cuda"))
+    # model_n_10 = UNet(2,1, 10).cuda()
+    # model_n_10.load_state_dict(torch.load("checkpoints/forest_n_10.pkl", map_location="cuda"))
+    # model_n_20 = UNet(2,1, 20).cuda()
+    # model_n_20.load_state_dict(torch.load("checkpoints/forest_n_20.pkl", map_location="cuda"))
+    # model_n_50 = UNet(2,1, 50).cuda()
+    # model_n_50.load_state_dict(torch.load("checkpoints/forest_n_50.pkl", map_location="cuda"))
+    # models = {
+    #     'lambd = 0.1': model_lambd_0_1,
+    #     'lambd = 0.01': model_lambd_0_01,
+    #     'lambd = 0.001': model_lambd_0_001,
+    #     'lambd = 0': model_lambd_0,
+    #     'lambd = 1': model_lambd_1,
+    #     'n = 10': model_n_10,
+    #     'n = 20': model_n_20,
+    #     'n = 50': model_n_50,
+    # }
+    # model_width = UNet(2,1, 10).cuda()
+    # model_width.load_state_dict(torch.load("checkpoints/forest_width_0.04.pkl", map_location="cuda"))
+    # models = {
+    #     'width = 0.04': model_width
+    # }
+    models = {}
 
     # Run tests on validation set
-    avg_vertices = 0
     cnt = 0
-    accuracy = 0
+    success_rates = {model_name: 0 for model_name in models}
+    vertices = {model_name: 0 for model_name in models}
+    avg_time = {model_name: 0 for model_name in models}
+    
+    # Add baselines to results
+    success_rates['RRT*'] = 0
+    vertices['RRT*'] = 0
+    avg_time['RRT*'] = 0
+    success_rates['line'] = 0
+    vertices['line'] = 0
+    avg_time['line'] = 0
     for data_sample in tqdm.tqdm(valid_dataset):
         if data_sample is None:
             continue
         img, s_x, s_y, t_x, t_y, inpt, start_point, goal_point = extract_data_sample(data_sample)
-        paths = model(inpt)
-        paths = torch.cat(
-            (start_point, paths, goal_point), dim=1
-        )
-        paths_rendered = neural_render_path(paths, 480, paths.shape[1]).detach().cpu().view(480,480).numpy()
         if not validate_scene(img, s_x, s_y, t_x, t_y):
             continue
-        # rrt, success = build_rrt(img, s_x, s_y, t_x, t_y, uniform_sampling, max_points=5000)
-        rrt, success = build_rrt(img, s_x, s_y, t_x, t_y, paths_rendered, model_sampling, max_points=5000)
-        avg_vertices += len(rrt.nodes)
         cnt += 1
-        if success:
-            accuracy += 1
-            # new_img = draw_graph(img, rrt)
-            # cv2.imwrite('test.png', new_img)
+
+        # Run baseline
+        t0 = time.time()
+        rrt, success = build_rrt(img, s_x, s_y, t_x, t_y, None, uniform_sampling, max_points=5000)
+        t1 = time.time()
+        success_rates['RRT*'] += 1 if success else 0
+        vertices['RRT*'] += len(rrt.nodes) if success else 0
+        avg_time['RRT*'] += (t1 - t0) if success else 0
+
+        paths = [start_point.cpu()]
+        for i in range(13):
+            t = i / 12
+            paths.append(t * goal_point + (1-t) * start_point)
+        paths.append(goal_point.cpu())
+        paths = torch.cat(
+            paths, dim=1
+        )
+        paths_rendered = neural_render_path(paths, 480, paths.shape[1]).detach().cpu().view(480,480).numpy()
+        t0 = time.time()
+        rrt, success = build_rrt(img, s_x, s_y, t_x, t_y, paths_rendered, model_sampling, max_points=5000)
+        t1 = time.time()
+        success_rates['line'] += 1 if success else 0
+        vertices['line'] += len(rrt.nodes) if success else 0
+        avg_time['line'] += (t1 - t0) if success else 0
+
+        for model_name in models:
+            model = models[model_name]
+            paths = model(inpt)
+            paths = torch.cat(
+                (start_point, paths, goal_point), dim=1
+            )
+            paths_rendered = neural_render_path(paths, 480, paths.shape[1]).detach().cpu().view(480,480).numpy()
+            t0 = time.time()
+            rrt, success = build_rrt(img, s_x, s_y, t_x, t_y, paths_rendered, model_sampling, max_points=5000)
+            t1 = time.time()
+            success_rates[model_name] += 1 if success else 0
+            vertices[model_name] += len(rrt.nodes) if success else 0
+            avg_time[model_name] += (t1 - t0) if success else 0
+
     
-    print (avg_vertices / cnt, accuracy / cnt, cnt)
+    print(cnt)
+    print(success_rates)
+    print(vertices)
+    print(avg_time)
 
 
 

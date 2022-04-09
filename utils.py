@@ -109,7 +109,7 @@ def neural_render_endpoints(path, image_size, n_points, eps=0.05):
     return images_end - images_start
 
 
-def neural_render_path(path, image_size, n_points, eps=0.02):
+def neural_render_path(path, image_size, n_points, eps=0.01):
     """
     Get a path *tensor* and generate a differentiable image from it
     """
