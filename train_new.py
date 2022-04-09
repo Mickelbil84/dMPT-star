@@ -1,3 +1,4 @@
+# trunk-ignore(black-py)
 import argparse
 import os
 
@@ -203,6 +204,7 @@ def train_epoch(model, trainingData, optimizer, epoch, train_losses, train_accur
     train_enum = tqdm(trainingData, mininterval=2, desc="Train epoch %d" % epoch)
 
     # Train for a single epoch.
+    grads = []
     for batch in train_enum:
 
         optimizer.zero_grad()
@@ -232,19 +234,13 @@ def train_epoch(model, trainingData, optimizer, epoch, train_losses, train_accur
         )
         masked_paths = paths_rendered * (1 - cspace_rendered)
 
-        # loss = torch.sum(masked_paths * masked_paths) / batch_size
-
-        # loss = equal_length_loss(paths)
         loss = F.mse_loss(
             masked_paths.view(-1, args.img_size * args.img_size), zeros_image
         )
         loss += 0.001 * equal_length_loss(paths)
-        # loss = F.l1_loss(1.0 / (masked_paths.view(-1, args.img_size * args.img_size) + 1.0), zeros_image)
-        # loss += F.l1_loss(paths_rendered.view(-1, args.img_size * args.img_size), zeros_image) * 1000
-        # loss += F.mse_loss(start_point.view(-1, 2), paths[:, 0, :].view(-1,2))
-        # loss += F.mse_loss(goal_point.view(-1, 2), paths[:, args.n_points-1, :].view(-1,2))
         loss.backward()
         optimizer.step()
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         # optimizer.step_and_update_lr()
 
         cnt += 1
@@ -256,6 +252,22 @@ def train_epoch(model, trainingData, optimizer, epoch, train_losses, train_accur
 
         # if cnt % 5 == 0:
         #     visualize_epoch(model, False)
+        #     model.train()
+
+        # Check grad norm
+        # total_norm = 0
+        # for p in model.parameters():
+        #     param_norm = p.grad.data.norm(2)
+        #     total_norm += param_norm.item() ** 2
+        # total_norm = total_norm ** (1. / 2)
+        # grads.append(total_norm)
+        # vis.line(
+        #     Y=np.asarray(grads), 
+        #     opts=dict(title="Grad"),
+        #     win="Gard " + args.expName,
+        #     name="grad",
+        # )
+
 
     total_loss = float(total_loss / cnt)
     accuracy = float(total_n_correct / cnt)
@@ -289,27 +301,27 @@ def main():
     start_epoch = 1
 
     model_args = dict(
-        n_layers=6,
-        n_heads=3,
-        d_k=512,
-        d_v=256,
-        d_model=512,
-        d_inner=1024,
+        n_layers=6, 
+        n_heads=3, 
+        d_k=512, 
+        d_v=256, 
+        d_model=512, 
+        d_inner=512, 
         pad_idx=None,
-        n_position=40 * 40,
+        n_position=40*40, 
         dropout=0.1,
         train_shape=[24, 24],
         predict_paths=True,
         n_points=args.n_points,
     )
-    model = Transformer(**model_args).cuda()
+    # model = Transformer(**model_args).cuda()
     model_unet = UNet(2, 1, n_points=args.n_points).cuda()
 
     if args.checkpoint != "":
         checkpoint_args_path = os.path.dirname(args.checkpoint) + "/args.pth"
         checkpoint_args = torch.load(checkpoint_args_path)
         start_epoch = checkpoint_args[3]
-        model.load_state_dict(torch.load(args.checkpoint))
+        # model.load_state_dict(torch.load(args.checkpoint))
 
     # optimizer = ScheduledOptim(
     #     optim.Adam(model.parameters(), betas=(0.9, 0.98), eps=1e-9),
@@ -337,7 +349,7 @@ def main():
             train_accuracy,
         )
         scheduler.step()
-        torch.save(model_unet.state_dict(), "checkpoints/model_unet.pkl")
+        torch.save(model_unet.state_dict(), "checkpoints/model_transformer.pkl")
 
 
 if __name__ == "__main__":

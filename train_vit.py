@@ -53,7 +53,7 @@ parser.add_argument(
 parser.add_argument(
     "--data-folder", type=str, default="data", metavar="D", help="root to data folder"
 )
-parser.add_argument("--batch-size", type=int, default=64, help="batch size")
+parser.add_argument("--batch-size", type=int, default=16, help="batch size")
 parser.add_argument(
     "--train-workers", type=int, default=8, help="number of CPU threads for train data"
 )
@@ -64,7 +64,7 @@ parser.add_argument(
     help="number of CPU threads for validation data",
 )
 parser.add_argument(
-    "--n-points", type=int, default=20, help="number of points to predict per path"
+    "--n-points", type=int, default=5, help="number of points to predict per path"
 )
 parser.add_argument(
     "--img-size", type=int, default=480, help="image size of input and rendered paths"
@@ -188,7 +188,8 @@ def equal_length_loss(paths):
         #     loss += tmp
         # else:
         #     loss -= tmp
-        loss += tmp
+        if i == 0 or i == n_points-2:
+            loss += tmp
     return loss
 
 
@@ -239,10 +240,10 @@ def train_epoch(model, trainingData, optimizer, epoch, train_losses, train_accur
         # loss = torch.sum(masked_paths * masked_paths) / batch_size
 
         # loss = equal_length_loss(paths)
-        loss = F.mse_loss(
+        loss = 0*F.mse_loss(
             masked_paths.view(-1, args.img_size * args.img_size), zeros_image
         )
-        loss += 0.001 * equal_length_loss(paths)
+        loss += 0.1 * equal_length_loss(paths)
         # loss = F.l1_loss(1.0 / (masked_paths.view(-1, args.img_size * args.img_size) + 1.0), zeros_image)
         # loss += F.l1_loss(paths_rendered.view(-1, args.img_size * args.img_size), zeros_image) * 1000
         # loss += F.mse_loss(start_point.view(-1, 2), paths[:, 0, :].view(-1,2))
@@ -295,12 +296,12 @@ def main():
 
     model = ViT(
         image_size=480,
-        patch_size=32,
+        patch_size=48,
         num_classes=args.n_points * 2,
-        dim=512,
+        dim=128,
         depth=3,
-        heads=8,
-        mlp_dim=1024,
+        heads=6,
+        mlp_dim=256,
         dropout=0.1,
         emb_dropout=0.1
     ).cuda()
@@ -311,7 +312,7 @@ def main():
         start_epoch = checkpoint_args[3]
         model.load_state_dict(torch.load(args.checkpoint))
 
-    optimizer = optim.Adam(model.parameters(), lr=1e-7)
+    optimizer = optim.Adam(model.parameters(), lr=5e-5)
 
     # Keep track of losses
     train_losses = []

@@ -11,10 +11,47 @@ import numpy as np
 import torch
 
 
+def visualize_model(model, dataset, vis, img_size, map_idx=5, print_paths=True):
+    """
+    Output visualization images to visdom.
+
+    We take the first map_idx images in a given dataset, and draw the predicted
+    (rendered) path on top of the original scene. All outputs are uploaded to a 
+    given instace of visdom.
+    Also print the paths themself if needed.
+    """
+    model.eval()
+    with torch.no_grad():
+        for i in range(map_idx):
+            encoder_map = dataset[i]["map"]
+            scene_map = encoder_map[0, :, :]
+
+            # Get model's predicted path
+            s = encoder_map.size()
+            paths = model(encoder_map.view(1, s[0], s[1], s[2]).float().cuda())
+            paths = torch.cat(
+                (
+                    dataset[i]["start"].float().cuda().view(-1, 1, 2),
+                    paths,
+                    dataset[i]["goal"].float().cuda().view(-1, 1, 2),
+                ),
+                dim=1,
+            )
+            if print_paths:
+                print(paths.detach().cpu())
+
+            # Render the paths using a neural renderer
+            paths_rendered = neural_render_path(paths, img_size, paths.shape[1])
+            paths_map = paths_rendered.detach().cpu().numpy()[0]
+
+            # Overlay the scene with the paths
+            scene = (scene_map.numpy() + paths_map) / 2.0
+            vis.image(scene, win="Scene_" + str(i), opts=dict(title="Scene_" + str(i)))
+
+
 def blur_cspace(cspace, amount=50):
     """
     Blur the cspace, per batch
-    TODO: do this during the preprocess
 
     :param cspace: cspace tensor
     :type cspace: torch.tensor
@@ -72,7 +109,7 @@ def neural_render_endpoints(path, image_size, n_points, eps=0.05):
     return images_end - images_start
 
 
-def neural_render_path(path, image_size, n_points, eps=0.01):
+def neural_render_path(path, image_size, n_points, eps=0.02):
     """
     Get a path *tensor* and generate a differentiable image from it
     """
